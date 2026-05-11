@@ -1,0 +1,204 @@
+package com.example.demo.service;
+
+import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Optional;
+import com.example.demo.entity.Branch;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.core.Authentication;
+import org.springframework.stereotype.Service;
+import com.example.demo.entity.BranchUser;
+import com.example.demo.entity.User;
+import com.example.demo.entity.VehicleLog;
+import com.example.demo.repository.BranchRepository;
+import com.example.demo.repository.UserRepository;
+import com.example.demo.repository.VehicleRepository;
+
+@Service
+public class VehicleLogService
+{
+    @Autowired
+    private VehicleRepository repo;
+
+    @Autowired
+    private UserRepository userRepo;
+
+    @Autowired
+    private BranchRepository branchRepo; 
+
+    public List<VehicleLog> getLogs(BranchUser user) 
+    {
+        if (user.getBranches() == null || user.getBranches().isEmpty()) 
+        {
+            return new ArrayList<>();
+        }
+        return repo.findByBranchId(user.getBranches().get(0).getId());
+    }
+    
+    public List<VehicleLog> getLogsByBranchId(Long branchId) 
+    {
+        return repo.findByBranchId(branchId);
+    }
+
+    public VehicleLog logEntry(VehicleLog log, Authentication auth) 
+    {
+        BranchUser user = (BranchUser) auth.getPrincipal();
+        if (!user.getBranches().isEmpty()) {
+            log.setBranch(user.getBranches().get(0));
+        }
+        log.setEntryTime(LocalDateTime.now());
+        log.setInside(true);
+        return repo.save(log);
+    }
+
+    public VehicleLog logExit(Long id)
+    {
+        VehicleLog log = repo.findById(id).orElseThrow();
+        // ✅ get branch price
+        double branchPrice = getBranchPrice(log.getBranch());
+        log.setExitTime(LocalDateTime.now());
+        log.setInside(false);
+        log.calculatePrice(branchPrice);
+        return repo.save(log);
+    }
+
+    public VehicleLog logExitByPlate(String plateNumber)
+    {
+        VehicleLog log = repo.findByPlateNumberAndInsideTrue(plateNumber)
+                             .orElseThrow(() -> new RuntimeException("Vehicle not inside"));
+        // ✅ get branch price
+        double branchPrice = getBranchPrice(log.getBranch());
+        log.setExitTime(LocalDateTime.now());
+        log.setInside(false);
+        log.calculatePrice(branchPrice);
+        return repo.save(log);
+    }
+
+    private double getBranchPrice(Branch branch)
+    {
+        if (branch == null) return 2.0;
+
+        Branch fresh = branchRepo.findById(branch.getId()).orElse(branch);
+        return fresh.getPricePerMinute() != null ? fresh.getPricePerMinute() : 2.0;
+    }
+
+    private boolean fuzzyMatch(String ocr, String registered)
+    {
+        if (ocr == null || registered == null) return false;
+        if (ocr.equals(registered)) return true;
+        if (Math.abs(ocr.length() - registered.length()) > 1) return false;
+        int diff = 0;
+        int len = Math.min(ocr.length(), registered.length());
+        for (int i = 0; i < len; i++) {
+            if (ocr.charAt(i) != registered.charAt(i)) diff++;
+            if (diff > 1) return false;
+        }
+        return true;
+    }
+
+    private void deductBalance(User vehicleUser, double price)
+    {
+        User freshUser = userRepo.findById(vehicleUser.getId())
+                .orElse(vehicleUser);
+
+        double current = freshUser.getBalance() != null ? freshUser.getBalance() : 0.0;
+
+        if (current >= price) 
+        {
+            freshUser.setBalance(current - price);
+        } 
+        else 
+        {
+            freshUser.setBalance(0.0);
+            System.out.println("Insufficient balance for: "
+                + freshUser.getPlateNumber()
+                + " | Required: " + price
+                + " | Available: " + current);
+        }
+
+        userRepo.save(freshUser); 
+        System.out.println("Balance updated for " + freshUser.getPlateNumber()
+            + " | Old: " + current
+            + " | Deducted: " + price
+            + " | New: " + freshUser.getBalance());
+    }
+
+    public VehicleLog handleDetection(String plate, String cameraId, BranchUser user)
+    {
+        Branch currentBranch = user.getBranches().isEmpty()
+                ? null : user.getBranches().get(0);
+
+        double branchPrice = getBranchPrice(currentBranch);
+
+        List<User> branchUsers = currentBranch != null
+                ? userRepo.findByBranchId(currentBranch.getId())
+                : new ArrayList<>();
+
+        Optional<User> registered = branchUsers.stream()
+                .filter(u -> fuzzyMatch(plate, u.getPlateNumber()))
+                .findFirst();
+
+        if (registered.isPresent()) 
+        {
+            Optional<VehicleLog> existing = repo.findByPlateNumberAndInsideTrue(plate);
+
+            if (existing.isPresent()) 
+            {
+                VehicleLog log = existing.get();
+                log.setExitTime(LocalDateTime.now());
+                log.setInside(false);
+                log.calculatePrice(branchPrice);
+
+                double price = log.getPrice() != null ? log.getPrice() : 0.0;
+                deductBalance(registered.get(), price);
+
+                System.out.println("Deducted Rs." + price
+                    + " from " + registered.get().getPlateNumber()
+                    + " at Rs." + branchPrice + "/min");
+
+                return repo.save(log);
+            } 
+            else 
+            {
+                VehicleLog log = new VehicleLog();
+                log.setPlateNumber(plate);
+                log.setBranch(currentBranch);
+                log.setEntryTime(LocalDateTime.now());
+                log.setInside(true);
+                return repo.save(log);
+            }
+        } 
+        else 
+        {
+            System.out.println("Unregistered vehicle at branch "
+                + (currentBranch != null ? currentBranch.getId() : "unknown")
+                + " plate: " + plate);
+
+            Optional<VehicleLog> existing = repo.findByPlateNumberAndInsideTrue(plate);
+
+            if (existing.isPresent()) 
+            {
+                VehicleLog log = existing.get();
+                log.setExitTime(LocalDateTime.now());
+                log.setInside(false);
+                log.calculatePrice(branchPrice);
+                return repo.save(log);
+            } 
+            else 
+            {
+                VehicleLog log = new VehicleLog();
+                log.setPlateNumber(plate);
+                log.setBranch(currentBranch);
+                log.setEntryTime(LocalDateTime.now());
+                log.setInside(true);
+                return repo.save(log);
+            }
+        }
+    }
+    
+    public List<VehicleLog> logsForSuperAdmin()
+    {
+        return repo.findAll();
+    }
+}

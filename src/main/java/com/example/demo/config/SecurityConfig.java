@@ -41,6 +41,7 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                 .requestMatchers("/api/auth/**").permitAll()
                 .requestMatchers("/super-admin/login").permitAll()
+                .requestMatchers("/super-admin/branch-users/*/reset-password").permitAll()
                 .requestMatchers("/super-admin/**").authenticated()
                 .requestMatchers("/register").permitAll()
                 .requestMatchers("/userLogin").permitAll()
@@ -50,6 +51,9 @@ public class SecurityConfig {
                 .requestMatchers("/ws/info/**").permitAll()
                 .requestMatchers("/topic/**").permitAll()
                 .requestMatchers("/ocr/**").permitAll()
+                .requestMatchers("/api/payment/**").permitAll()
+                .requestMatchers("/api/user/forgot-password/**").permitAll()
+                
                 .anyRequest().authenticated()
             )
             .sessionManagement(session -> session

@@ -1,10 +1,10 @@
 package com.example.demo.controller;
 
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
@@ -36,6 +36,7 @@ public class VehicleLogController
 
     @Autowired
     private BranchRepository branchRepo;
+   
 
     @CrossOrigin(origins = "https://gconnectt.com")
     @GetMapping("/getLogs")
@@ -95,10 +96,9 @@ public class VehicleLogController
     @PutMapping("/branch/price/{branchId}")
     public ResponseEntity<Map<String, Object>> updatePrice(
             @PathVariable Long branchId,
-            @RequestBody Map<String, Double> request,
+            @RequestBody Map<String, Object> request,   // ← change Double to Object to handle mixed types
             @AuthenticationPrincipal BranchUser user) {
         try {
-            // ✅ Make sure this branch belongs to this user
             boolean owns = user.getBranches().stream()
                     .anyMatch(b -> b.getId().equals(branchId));
             if (!owns) {
@@ -108,12 +108,32 @@ public class VehicleLogController
 
             Branch branch = branchRepo.findById(branchId)
                     .orElseThrow(() -> new RuntimeException("Branch not found"));
-            branch.setPricePerMinute(request.get("pricePerMinute"));
+
+            // ✅ Existing behavior — unchanged
+            if (request.containsKey("pricePerMinute")) {
+                branch.setPricePerMinute(((Number) request.get("pricePerMinute")).doubleValue());
+            }
+
+            // ✅ NEW — only set special price if both fields are provided
+            if (request.containsKey("specialPrice") && request.containsKey("specialPriceUntil")) {
+                branch.setSpecialPrice(((Number) request.get("specialPrice")).doubleValue());
+                branch.setSpecialPriceUntil(LocalDate.parse((String) request.get("specialPriceUntil")));
+            }
+
+            // ✅ NEW — allow clearing special price explicitly
+            if (request.containsKey("clearSpecialPrice") && Boolean.TRUE.equals(request.get("clearSpecialPrice"))) {
+                branch.setSpecialPrice(null);
+                branch.setSpecialPriceUntil(null);
+            }
+
             branchRepo.save(branch);
 
+            // ✅ Existing response + new fields appended
             return ResponseEntity.ok(Map.of(
-                "message",        "Price updated successfully",
-                "pricePerMinute", branch.getPricePerMinute()
+                "message",           "Price updated successfully",
+                "pricePerMinute",    branch.getPricePerMinute(),       // existing
+                "specialPrice",      branch.getSpecialPrice() != null ? branch.getSpecialPrice() : "",
+                "specialPriceUntil", branch.getSpecialPriceUntil() != null ? branch.getSpecialPriceUntil() : ""
             ));
         } catch (Exception e) {
             return ResponseEntity.status(500)
@@ -126,11 +146,25 @@ public class VehicleLogController
     public ResponseEntity<Map<String, Object>> getPrice(
             @PathVariable Long branchId,
             @AuthenticationPrincipal BranchUser user) {
+
         Branch branch = branchRepo.findById(branchId)
                 .orElseThrow(() -> new RuntimeException("Branch not found"));
+
+        // ✅ Existing behavior — unchanged
+        Double normalPrice = branch.getPricePerMinute() != null ? branch.getPricePerMinute() : 2.0;
+
+        // ✅ NEW — check if special price is still active
+        boolean specialActive = branch.getSpecialPrice() != null
+                && branch.getSpecialPriceUntil() != null
+                && !LocalDate.now().isAfter(branch.getSpecialPriceUntil());
+
         return ResponseEntity.ok(Map.of(
-            "pricePerMinute",
-            branch.getPricePerMinute() != null ? branch.getPricePerMinute() : 2.0
+            "pricePerMinute",    normalPrice,                                           // existing
+            "effectivePrice",    specialActive ? branch.getSpecialPrice() : normalPrice, // NEW — use this for billing
+            "specialPrice",      branch.getSpecialPrice() != null ? branch.getSpecialPrice() : "",  // NEW
+            "specialPriceUntil", branch.getSpecialPriceUntil() != null ? branch.getSpecialPriceUntil() : "", // NEW
+            "specialActive",     specialActive                                           // NEW
         ));
     }
+    
 }

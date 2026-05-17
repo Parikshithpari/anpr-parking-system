@@ -34,7 +34,11 @@ public class User
 	@JoinColumn(name = "branch_id", nullable = true)
 	private Branch branch;
 	
+	@Column(nullable=false, unique = true)
 	private String plateNumber;
+	
+	@Column(nullable=false, unique = true)
+	private String RCNumber;
 
 	public User() 
 	{
@@ -42,7 +46,7 @@ public class User
 	}
 
 	public User(Long id, String name, String phoneNumber, String email, String password, Double balance,
-			Branch branch, String plateNumber) 
+			Branch branch, String plateNumber, String RCNumber) 
 	{
 		super();
 		this.id = id;
@@ -53,6 +57,7 @@ public class User
 		this.balance = balance;
 		this.branch = branch;
 		this.plateNumber = plateNumber;
+		this.RCNumber = RCNumber;
 	}
 
 	public Long getId() {
@@ -117,5 +122,13 @@ public class User
 
 	public void setPlateNumber(String plateNumber) {
 		this.plateNumber = plateNumber;
+	}
+
+	public String getRCNumber() {
+		return RCNumber;
+	}
+
+	public void setRCNumber(String rCNumber) {
+		RCNumber = rCNumber;
 	}
 }

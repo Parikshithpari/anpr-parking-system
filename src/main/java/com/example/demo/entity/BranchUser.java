@@ -1,5 +1,6 @@
 package com.example.demo.entity;
 
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -24,11 +25,14 @@ public class BranchUser implements UserDetails
 	 @Id
 	 @GeneratedValue(strategy = GenerationType.IDENTITY)
 	 private Long id;
-
+	 
+	 @Column(nullable = false, unique = true)
 	 private String branchName;
+	 
+	 @Column(nullable = false, unique = true)
 	 private String location;
 	 
-	 @Column(name = "user_name")
+	 @Column(name = "user_name", nullable = false, unique= true)
 	 private String userName;
 	 private String password;
 
@@ -70,6 +74,7 @@ public class BranchUser implements UserDetails
 
     @Override
     public boolean isEnabled() { return true; }
+    
 
 	public BranchUser(Long id, String branchName, String location, String userName, String password,
 			List<Branch> branches) 

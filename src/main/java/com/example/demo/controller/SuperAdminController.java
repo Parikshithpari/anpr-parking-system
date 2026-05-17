@@ -17,6 +17,7 @@ import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
 
+import java.security.SecureRandom;
 import java.util.*;
 
 @RestController
@@ -186,7 +187,7 @@ public class SuperAdminController {
             @PathVariable Long id) {
         try {
             branchUserRepo.deleteById(id);
-            cacheService.evictBranchCaches();  // ← bust stale cache
+            cacheService.evictBranchCaches();  
             return ResponseEntity.ok(Map.of("message", "Deleted successfully"));
         } catch (Exception e) {
             return ResponseEntity.status(500)
@@ -222,5 +223,43 @@ public class SuperAdminController {
                         "attachment; filename=config_" + user.getUsername() + ".ini")
                 .header("Content-Type", "text/plain")
                 .body(bytes);
+    }
+    
+    private String generateTempPassword() {
+
+        String chars =
+            "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
+
+        SecureRandom random = new SecureRandom();
+
+        StringBuilder sb = new StringBuilder();
+
+        for (int i = 0; i < 8; i++) {
+            sb.append(chars.charAt(random.nextInt(chars.length())));
+        }
+
+        return sb.toString();
+    }
+    
+    @PostMapping("/super-admin/branch-users/{id}/reset-password")
+    public ResponseEntity<?> resetPassword(@PathVariable Long id) {
+        System.out.println("🔑 Reset password called for user id: " + id);
+        try {
+            BranchUser user = branchUserRepo.findById(id)
+                .orElseThrow(() -> new RuntimeException("User not found"));
+
+            String tempPassword = generateTempPassword();
+            user.setPassword(passwordEncoder.encode(tempPassword));
+            branchUserRepo.save(user);
+
+            System.out.println("✅ Password reset for user: " + user.getUsername());
+
+            return ResponseEntity.ok(Map.of("temporaryPassword", tempPassword));
+
+        } catch (Exception e) {
+            System.out.println("❌ Reset failed: " + e.getMessage());
+            return ResponseEntity.status(500)
+                    .body(Map.of("error", e.getMessage()));
+        }
     }
 }

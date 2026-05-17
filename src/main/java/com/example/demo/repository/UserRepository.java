@@ -15,4 +15,6 @@ public interface UserRepository extends JpaRepository<User, Long>
 	Optional<User> findByPlateNumberAndBranchId(String plateNumber, Long branchId);
 	
 	List<User> findByBranchId(Long branchId);
+	
+	Optional<User> findByEmail(String email);
 }

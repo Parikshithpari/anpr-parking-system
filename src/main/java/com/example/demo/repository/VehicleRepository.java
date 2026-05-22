@@ -19,4 +19,6 @@ public interface VehicleRepository extends JpaRepository<VehicleLog, Long>
 	Optional<VehicleLog> findLatestByPlateNumberAndBranchId(String plateNumber, Long branchId);
 
 	boolean existsByPlateNumberAndInsideTrue(String plate);
+	
+	List<VehicleLog> findByPlateNumberAndInsideFalse(String plateNumber);
 }

@@ -22,6 +22,8 @@ public class SuperAdmin implements UserDetails
     @Column(unique = true)
     private String userName;
     private String password;
+    
+    private String email = "parikshithec241@gmail.com";
 
     @Override
     public Collection<? extends GrantedAuthority> getAuthorities() 
@@ -49,15 +51,27 @@ public class SuperAdmin implements UserDetails
 
     public SuperAdmin() {}
 
-    public SuperAdmin(Long id, String userName, String password) 
+    public SuperAdmin(Long id, String userName, String password, String email) 
     {
-        this.id = id;
-        this.userName = userName;
-        this.password = password;
-    }
+		super();
+		this.id = id;
+		this.userName = userName;
+		this.password = password;
+		this.email = email;
+	}
 
-    public Long getId() { return id; }
+	public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
     public void setUserName(String userName) { this.userName = userName; }
     public void setPassword(String password) { this.password = password; }
+
+	public String getEmail() 
+	{
+		return email;
+	}
+
+	public void setEmail(String email) 
+	{
+		this.email = email;
+	}
 }

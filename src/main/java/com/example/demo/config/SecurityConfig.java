@@ -53,6 +53,8 @@ public class SecurityConfig {
                 .requestMatchers("/ocr/**").permitAll()
                 .requestMatchers("/api/payment/**").permitAll()
                 .requestMatchers("/api/user/forgot-password/**").permitAll()
+                .requestMatchers("/super-admin/login").permitAll()
+                .requestMatchers("/super-admin/verify-otp").permitAll()
                 
                 .anyRequest().authenticated()
             )

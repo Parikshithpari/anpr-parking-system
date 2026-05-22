@@ -20,9 +20,6 @@ public class SuperAdminCacheService
     private BranchUserRepository branchUserRepo;
 
     @Autowired
-    private BranchRepository branchRepo;
-
-    @Autowired
     private UserRepository userRepo;
 
     // ── Hover card: cache per plate number ──
@@ -68,19 +65,7 @@ public class SuperAdminCacheService
             map.put("branches", branchList);
             return map;
         }).collect(Collectors.toList());
-    }
-
-    // ── All branches ──
-    @Cacheable(value = "allBranches", key = "'all'")
-    public List<Map<String, Object>> getAllBranches() {
-        return branchRepo.findAll().stream().map(b -> {
-            Map<String, Object> map = new HashMap<>();
-            map.put("id",         b.getId());
-            map.put("branchName", b.getBranchName());
-            map.put("location",   b.getLocation());
-            return map;
-        }).collect(Collectors.toList());
-    }
+    }  
 
     // ── Branch password ──
     @Cacheable(value = "branchPassword", key = "#id")

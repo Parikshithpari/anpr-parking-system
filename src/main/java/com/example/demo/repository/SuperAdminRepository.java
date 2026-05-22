@@ -9,4 +9,5 @@ import com.example.demo.entity.SuperAdmin;
 public interface SuperAdminRepository extends JpaRepository<SuperAdmin, Long> 
 {
     Optional<SuperAdmin> findByUserName(String userName);
+    
 }

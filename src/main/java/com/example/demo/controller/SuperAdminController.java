@@ -2,23 +2,31 @@ package com.example.demo.controller;
 
 import com.example.demo.entity.Branch;
 import com.example.demo.entity.BranchUser;
+import com.example.demo.entity.SuperAdmin;
 import com.example.demo.entity.VehicleLog;
 import com.example.demo.repository.BranchRepository;
 import com.example.demo.repository.BranchUserRepository;
+import com.example.demo.repository.SuperAdminRepository;
 import com.example.demo.repository.UserRepository;
 import com.example.demo.security.JwtUtil;
 import com.example.demo.service.SuperAdminCacheService;
 import com.example.demo.service.SuperAdminService;
 import com.example.demo.service.VehicleLogService;
 
+import jakarta.mail.internet.MimeMessage;
+
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
+import org.springframework.mail.javamail.JavaMailSender;
+import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
 
 import java.security.SecureRandom;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 
 @RestController
 public class SuperAdminController {
@@ -44,48 +52,149 @@ public class SuperAdminController {
     @Autowired 
     private UserRepository userRepo;
     
+    @Autowired
+    private SuperAdminService superAdminService;
+    
     @Autowired 
-    private SuperAdminCacheService cacheService; 
+    private SuperAdminCacheService cacheService;
 
+    @Autowired
+    private JavaMailSender mailSender;
 
+    @Autowired
+    private SuperAdminRepository superAdminRepo;  // ✅ was missing
+
+    @Value("${spring.mail.username}")
+    private String fromEmail;
+
+    // ✅ OTP store — in memory
+    private final Map<String, String[]> superAdminOtpStore = new ConcurrentHashMap<>();
+
+    // ✅ Step 1 — validate credentials, send OTP (only one login mapping now)
     @PostMapping("/super-admin/login")
     public ResponseEntity<Map<String, String>> login(
             @RequestBody Map<String, String> request) {
         try {
             String username = request.get("username");
             String password = request.get("password");
+
             UserDetails superAdmin = superAdminDetailService.loadUserByUsername(username);
             if (!passwordEncoder.matches(password, superAdmin.getPassword())) {
                 return ResponseEntity.status(401)
                         .body(Map.of("error", "Invalid credentials"));
             }
-            String token = jwtUtil.generateToken(username);
-            return ResponseEntity.ok(Map.of("token", token, "role", "SUPER_ADMIN"));
+
+            SuperAdmin admin = superAdminRepo.findByUserName(username)
+                    .orElseThrow(() -> new RuntimeException("Admin not found"));
+
+            // ✅ Guard — if email not set, skip OTP and just return token
+            if (admin.getEmail() == null || admin.getEmail().isBlank()) {
+                System.out.println("⚠️ No email set for super admin — skipping OTP");
+                String token = jwtUtil.generateToken(username);
+                return ResponseEntity.ok(Map.of(
+                    "token",       token,
+                    "role",        "SUPER_ADMIN",
+                    "otpRequired", "false"
+                ));
+            }
+
+            String otp    = String.valueOf((int)(Math.random() * 900000) + 100000);
+            long   expiry = System.currentTimeMillis() + (5 * 60 * 1000);
+            superAdminOtpStore.put(username, new String[]{otp, String.valueOf(expiry)});
+
+            MimeMessage message = mailSender.createMimeMessage();
+            MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
+            helper.setFrom(fromEmail);
+            helper.setTo(admin.getEmail());
+            helper.setSubject("PTag Super Admin — Login OTP");
+            helper.setText(
+                "<div style='font-family:Segoe UI,sans-serif;max-width:480px;" +
+                "margin:0 auto;padding:32px;background:#faf4f2;" +
+                "border-radius:16px;border:1px solid rgba(139,58,58,0.2)'>" +
+                "<h2 style='color:#5C1F1F;margin:0 0 8px'>Super Admin Login OTP</h2>" +
+                "<p style='color:#9a6060;font-size:14px;margin:0 0 24px'>" +
+                "Use the OTP below to complete your login. Valid for 5 minutes.</p>" +
+                "<div style='background:#5C1F1F;border-radius:12px;padding:20px;" +
+                "text-align:center;letter-spacing:8px;font-size:32px;" +
+                "font-weight:800;color:#ffffff'>" + otp + "</div>" +
+                "<p style='color:#c09090;font-size:12px;margin:20px 0 0'>" +
+                "If you did not attempt to login, secure your account immediately.</p></div>",
+                true
+            );
+            mailSender.send(message);
+
+            return ResponseEntity.ok(Map.of(
+                "message",     "OTP sent to registered email",
+                "otpRequired", "true",
+                "username",    username
+            ));
+
         } catch (Exception e) {
+            e.printStackTrace();
             return ResponseEntity.status(401)
                     .body(Map.of("error", "Invalid credentials"));
         }
     }
 
-    // ── Logs (not cached — changes every entry/exit) ───────────────────────
+    @PostMapping("/super-admin/verify-otp")
+    public ResponseEntity<Map<String, String>> verifyOtp(
+            @RequestBody Map<String, String> request) {
+        try {
+            String username = request.get("username");
+            String otp      = request.get("otp");
+
+            String[] stored = superAdminOtpStore.get(username);
+            if (stored == null) {
+                return ResponseEntity.status(400)
+                        .body(Map.of("error", "OTP expired or not requested"));
+            }
+
+            long expiry = Long.parseLong(stored[1]);
+            if (System.currentTimeMillis() > expiry) {
+                superAdminOtpStore.remove(username);
+                return ResponseEntity.status(400)
+                        .body(Map.of("error", "OTP expired. Please login again."));
+            }
+
+            if (!stored[0].equals(otp)) {
+                return ResponseEntity.status(400)
+                        .body(Map.of("error", "Invalid OTP"));
+            }
+
+            // ✅ OTP valid — generate JWT and clear OTP
+            superAdminOtpStore.remove(username);
+            String token = jwtUtil.generateToken(username);
+            return ResponseEntity.ok(Map.of(
+                "token", token,
+                "role",  "SUPER_ADMIN"
+            ));
+
+        } catch (Exception e) {
+            e.printStackTrace();
+            return ResponseEntity.status(500)
+                    .body(Map.of("error", "Verification failed"));
+        }
+    }
+
+    // ── Logs ──────────────────────────────────────────────────────────────
     @GetMapping("/super-admin/logs")
     public ResponseEntity<List<VehicleLog>> getAllLogs() {
         return ResponseEntity.ok(vehicleLogService.logsForSuperAdmin());
     }
 
-    // ── Branch users → served from Redis via cacheService ─────────────────
+    // ── Branch users ──────────────────────────────────────────────────────
     @GetMapping("/super-admin/branch-users")
     public ResponseEntity<List<Map<String, Object>>> getBranchUsers() {
         return ResponseEntity.ok(cacheService.getBranchUsers());
     }
 
-    // ── All branches → served from Redis via cacheService ─────────────────
+    // ── All branches ──────────────────────────────────────────────────────
     @GetMapping("/super-admin/all-branches")
     public ResponseEntity<List<Map<String, Object>>> getAllBranches() {
-        return ResponseEntity.ok(cacheService.getAllBranches());
+        return ResponseEntity.ok(superAdminService.getAllBranches());
     }
 
-    // ── User by plate → served from Redis via cacheService ────────────────
+    // ── User by plate ─────────────────────────────────────────────────────
     @GetMapping("/super-admin/user-by-plate/{plateNumber}")
     public ResponseEntity<Map<String, Object>> getUserByPlate(
             @PathVariable String plateNumber) {
@@ -97,7 +206,7 @@ public class SuperAdminController {
         }
     }
 
-    // ── Branch password → served from Redis via cacheService ──────────────
+    // ── Branch password ───────────────────────────────────────────────────
     @GetMapping("/super-admin/branch-users/{id}/password")
     public ResponseEntity<Map<String, Object>> getBranchPassword(
             @PathVariable Long id) {
@@ -109,7 +218,7 @@ public class SuperAdminController {
         }
     }
 
-    // ── Create branch user + evict cache ──────────────────────────────────
+    // ── Create branch user ────────────────────────────────────────────────
     @PostMapping("/super-admin/branch-users")
     public ResponseEntity<Map<String, Object>> createBranchUser(
             @RequestBody Map<String, String> request) {
@@ -135,7 +244,7 @@ public class SuperAdminController {
             user.setBranches(new ArrayList<>(List.of(savedBranch)));
             BranchUser saved = branchUserRepo.save(user);
 
-            cacheService.evictBranchCaches();  // ← bust stale cache
+            cacheService.evictBranchCaches();
 
             Map<String, Object> resp = new HashMap<>();
             resp.put("id",         saved.getId());
@@ -155,7 +264,7 @@ public class SuperAdminController {
         }
     }
 
-    // ── Assign branches + evict cache ──────────────────────────────────────
+    // ── Assign branches ───────────────────────────────────────────────────
     @PutMapping("/super-admin/branch-users/{id}/assign-branches")
     public ResponseEntity<Map<String, Object>> assignBranches(
             @PathVariable Long id,
@@ -169,7 +278,7 @@ public class SuperAdminController {
             user.setBranches(branches);
             branchUserRepo.save(user);
 
-            cacheService.evictBranchCaches();  // ← bust stale cache
+            cacheService.evictBranchCaches();
 
             return ResponseEntity.ok(Map.of(
                 "message", "Branches assigned successfully",
@@ -181,13 +290,13 @@ public class SuperAdminController {
         }
     }
 
-    // ── Delete branch user + evict cache ──────────────────────────────────
+    // ── Delete branch user ────────────────────────────────────────────────
     @DeleteMapping("/super-admin/branch-users/{id}")
     public ResponseEntity<Map<String, String>> deleteBranchUser(
             @PathVariable Long id) {
         try {
             branchUserRepo.deleteById(id);
-            cacheService.evictBranchCaches();  
+            cacheService.evictBranchCaches();
             return ResponseEntity.ok(Map.of("message", "Deleted successfully"));
         } catch (Exception e) {
             return ResponseEntity.status(500)
@@ -195,7 +304,7 @@ public class SuperAdminController {
         }
     }
 
-    // ── Download config (no caching needed) ───────────────────────────────
+    // ── Download config ───────────────────────────────────────────────────
     @GetMapping("/super-admin/branch-users/{id}/download-config")
     public ResponseEntity<byte[]> downloadConfig(
             @PathVariable Long id,
@@ -224,23 +333,18 @@ public class SuperAdminController {
                 .header("Content-Type", "text/plain")
                 .body(bytes);
     }
-    
+
+    // ── Reset password ────────────────────────────────────────────────────
     private String generateTempPassword() {
-
-        String chars =
-            "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
-
+        String chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
         SecureRandom random = new SecureRandom();
-
         StringBuilder sb = new StringBuilder();
-
         for (int i = 0; i < 8; i++) {
             sb.append(chars.charAt(random.nextInt(chars.length())));
         }
-
         return sb.toString();
     }
-    
+
     @PostMapping("/super-admin/branch-users/{id}/reset-password")
     public ResponseEntity<?> resetPassword(@PathVariable Long id) {
         System.out.println("🔑 Reset password called for user id: " + id);

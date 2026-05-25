@@ -2,21 +2,29 @@ package com.example.demo.controller;
 
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
+
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
-
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+
 import com.example.demo.entity.User;
 import com.example.demo.entity.VehicleLog;
 import com.example.demo.repository.UserRepository;
 import com.example.demo.repository.VehicleRepository;
 import com.example.demo.service.UserService;
+
+import com.phonepe.sdk.pg.common.models.response.OrderStatusResponse;
+import com.phonepe.sdk.pg.payments.v2.models.request.StandardCheckoutPayRequest;
+import com.phonepe.sdk.pg.payments.v2.models.response.StandardCheckoutPayResponse;
 
 @RestController
 public class UserController 
@@ -35,6 +43,12 @@ public class UserController
 
     @Value("${app.frontend.url}")
     private String frontendUrl;
+    
+    @Autowired
+    private Map<String, Map<String, String>> pendingTopUps;
+    
+    @Autowired
+    private com.phonepe.sdk.pg.payments.v2.StandardCheckoutClient phonePeClient;
     
 	@PostMapping("/register")
 	private User registerUser(@RequestBody User user)
@@ -118,18 +132,20 @@ public class UserController
 	}
 	
 	// ✅ Get transaction history for logged-in user
-	@GetMapping("/user/transactions")
-	public ResponseEntity<List<VehicleLog>> getTransactions(
-	        @AuthenticationPrincipal UserDetails userDetails) {
-	    User user = repo.findUserByName(userDetails.getUsername())
-	            .orElseThrow(() -> new RuntimeException("User not found"));
-	    List<VehicleLog> logs = vehicleLogRepo.findByPlateNumberAndInsideFalse(
-	            user.getPlateNumber());
-	    return ResponseEntity.ok(logs);
+	@GetMapping("/user/transactions/by-plate/{plateNumber}")
+	public ResponseEntity<List<VehicleLog>> getTransactionsByPlate(
+	        @PathVariable String plateNumber) {
+	    try {
+	        List<VehicleLog> logs = vehicleLogRepo
+	                .findByPlateNumberAndInsideFalseOrderByExitTimeDesc(plateNumber);
+	        return ResponseEntity.ok(logs);
+	    } catch (Exception e) {
+	        return ResponseEntity.ok(List.of());
+	    }
 	}
 
 	// ✅ Initiate top-up payment (reuse PhonePe flow)
-	/*@PostMapping("/user/topup/initiate")
+	@PostMapping("/user/topup/initiate")
 	public ResponseEntity<Map<String, Object>> initiateTopUp(
 	        @AuthenticationPrincipal UserDetails userDetails,
 	        @RequestBody Map<String, String> request) {
@@ -148,7 +164,7 @@ public class UserController
 	        String merchantOrderId = "TOPUP_" + UUID.randomUUID()
 	                .toString().replace("-", "");
 
-	        // store pending topup
+			// store pending topup
 	        pendingTopUps.put(merchantOrderId, Map.of(
 	            "userId",   String.valueOf(user.getId()),
 	            "amount",   amountStr
@@ -163,7 +179,7 @@ public class UserController
 	            .redirectUrl(redirectUrl)
 	            .build();
 
-	        StandardCheckoutPayResponse payResponse = phonePeClient.pay(payRequest);
+			StandardCheckoutPayResponse payResponse = phonePeClient.pay(payRequest);
 
 	        return ResponseEntity.ok(Map.of(
 	            "paymentUrl",      payResponse.getRedirectUrl(),
@@ -213,6 +229,6 @@ public class UserController
 	                .header("Location", frontendUrl + "/userDashboard?topup=failed")
 	                .build();
 	    }
-	}*/
+	}
 
 }

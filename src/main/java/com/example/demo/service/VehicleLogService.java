@@ -83,110 +83,107 @@ public class VehicleLogService
         return fresh.getPricePerMinute() != null ? fresh.getPricePerMinute() : 2.0;
     }
 
-    private boolean fuzzyMatch(String ocr, String registered)
-    {
+    private boolean fuzzyMatch(String ocr, String registered) {
         if (ocr == null || registered == null) return false;
-        if (ocr.equals(registered)) return true;
-        if (Math.abs(ocr.length() - registered.length()) > 1) return false;
+        // ✅ Normalize to uppercase for comparison
+        String ocrUp = ocr.toUpperCase().replaceAll("\\s+", "");
+        String regUp = registered.toUpperCase().replaceAll("\\s+", "");
+        if (ocrUp.equals(regUp)) return true;
+        if (Math.abs(ocrUp.length() - regUp.length()) > 1) return false;
         int diff = 0;
-        int len = Math.min(ocr.length(), registered.length());
+        int len  = Math.min(ocrUp.length(), regUp.length());
         for (int i = 0; i < len; i++) {
-            if (ocr.charAt(i) != registered.charAt(i)) diff++;
+            if (ocrUp.charAt(i) != regUp.charAt(i)) diff++;
             if (diff > 1) return false;
         }
         return true;
     }
 
-    private void deductBalance(User vehicleUser, double price)
-    {
+    private void deductBalance(User vehicleUser, double price) {
+        // ✅ Always fetch fresh from DB by ID to avoid stale state
         User freshUser = userRepo.findById(vehicleUser.getId())
                 .orElse(vehicleUser);
-
+     
         double current = freshUser.getBalance() != null ? freshUser.getBalance() : 0.0;
-
-        if (current >= price) 
-        {
-            freshUser.setBalance(current - price);
-        } 
-        else 
-        {
-            freshUser.setBalance(0.0);
-            System.out.println("Insufficient balance for: "
-                + freshUser.getPlateNumber()
-                + " | Required: " + price
-                + " | Available: " + current);
+     
+        if (price <= 0) {
+            System.out.println("⚠️ Price is 0 or negative — skipping deduction");
+            return;
         }
-
-        userRepo.save(freshUser); 
-        System.out.println("Balance updated for " + freshUser.getPlateNumber()
+     
+        if (current >= price) {
+            freshUser.setBalance(Math.round((current - price) * 100.0) / 100.0);
+        } else {
+            System.out.println("⚠️ Insufficient balance for: " + freshUser.getPlateNumber()
+                + " | Required: " + price + " | Available: " + current);
+            freshUser.setBalance(0.0);
+        }
+     
+        userRepo.save(freshUser);
+        System.out.println("✅ Balance deducted for " + freshUser.getPlateNumber()
             + " | Old: " + current
             + " | Deducted: " + price
             + " | New: " + freshUser.getBalance());
     }
 
-    public VehicleLog handleDetection(String plate, String cameraId, BranchUser user)
-    {
+    public VehicleLog handleDetection(String plate, String cameraId, BranchUser user) {
         Branch currentBranch = user.getBranches().isEmpty()
                 ? null : user.getBranches().get(0);
-
+     
         double branchPrice = getBranchPrice(currentBranch);
-
-        List<User> branchUsers = currentBranch != null
-                ? userRepo.findByBranchId(currentBranch.getId())
-                : new ArrayList<>();
-
-        Optional<User> registered = branchUsers.stream()
+     
+        // ✅ Search ALL users (not just branch-specific) for plate match
+        // This handles users registered without a branch
+        List<User> allUsers = userRepo.findAll();
+        Optional<User> registered = allUsers.stream()
                 .filter(u -> fuzzyMatch(plate, u.getPlateNumber()))
                 .findFirst();
-
-        if (registered.isPresent()) 
-        {
+     
+        if (registered.isPresent()) {
             Optional<VehicleLog> existing = repo.findByPlateNumberAndInsideTrue(plate);
-
-            if (existing.isPresent()) 
-            {
+     
+            if (existing.isPresent()) {
+                // Registered vehicle exiting
                 VehicleLog log = existing.get();
+     
+                // ✅ Use the branch price of the branch where vehicle is parked
+                double exitBranchPrice = getBranchPrice(log.getBranch());
+     
                 log.setExitTime(LocalDateTime.now());
                 log.setInside(false);
-                log.calculatePrice(branchPrice);
-
+                log.calculatePrice(exitBranchPrice);
+     
                 double price = log.getPrice() != null ? log.getPrice() : 0.0;
                 deductBalance(registered.get(), price);
-
-                System.out.println("Deducted Rs." + price
-                    + " from " + registered.get().getPlateNumber()
-                    + " at Rs." + branchPrice + "/min");
-
+     
+                System.out.println("✅ Exit: " + plate
+                    + " | Price: Rs." + price
+                    + " | Rate: Rs." + exitBranchPrice + "/min"
+                    + " | Branch: " + (log.getBranch() != null ? log.getBranch().getBranchName() : "unknown"));
+     
                 return repo.save(log);
-            } 
-            else 
-            {
+            } else {
+                // Registered vehicle entering
                 VehicleLog log = new VehicleLog();
                 log.setPlateNumber(plate);
                 log.setBranch(currentBranch);
                 log.setEntryTime(LocalDateTime.now());
                 log.setInside(true);
+                System.out.println("✅ Entry: " + plate);
                 return repo.save(log);
             }
-        } 
-        else 
-        {
-            System.out.println("Unregistered vehicle at branch "
-                + (currentBranch != null ? currentBranch.getId() : "unknown")
-                + " plate: " + plate);
-
+        } else {
+            System.out.println("ℹ️ Unregistered vehicle: " + plate);
             Optional<VehicleLog> existing = repo.findByPlateNumberAndInsideTrue(plate);
-
-            if (existing.isPresent()) 
-            {
+     
+            if (existing.isPresent()) {
                 VehicleLog log = existing.get();
+                double exitBranchPrice = getBranchPrice(log.getBranch());
                 log.setExitTime(LocalDateTime.now());
                 log.setInside(false);
-                log.calculatePrice(branchPrice);
+                log.calculatePrice(exitBranchPrice);
                 return repo.save(log);
-            } 
-            else 
-            {
+            } else {
                 VehicleLog log = new VehicleLog();
                 log.setPlateNumber(plate);
                 log.setBranch(currentBranch);

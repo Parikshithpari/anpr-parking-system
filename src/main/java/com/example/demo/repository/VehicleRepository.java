@@ -21,4 +21,6 @@ public interface VehicleRepository extends JpaRepository<VehicleLog, Long>
 	boolean existsByPlateNumberAndInsideTrue(String plate);
 	
 	List<VehicleLog> findByPlateNumberAndInsideFalse(String plateNumber);
+
+	List<VehicleLog> findByPlateNumberAndInsideFalseOrderByExitTimeDesc(String plateNumber);
 }

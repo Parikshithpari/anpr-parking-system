@@ -18,7 +18,7 @@ import com.example.demo.service.SuperAdminService;
 import java.io.IOException;
 
 @Component
-public class JwtAuthenticationFilter extends OncePerRequestFilter 
+public class JwtAuthenticationFilter extends OncePerRequestFilter
 {
 
     private final JwtUtil jwtUtil;
@@ -27,11 +27,27 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter
 
     public JwtAuthenticationFilter(JwtUtil jwtUtil,
                                    BranchDetailService branchDetailService,
-                                   SuperAdminService superAdminDetailService) 
+                                   SuperAdminService superAdminDetailService)
     {
         this.jwtUtil                  = jwtUtil;
         this.branchDetailService      = branchDetailService;
         this.superAdminDetailService  = superAdminDetailService;
+    }
+
+    // ✅ ADD THIS — tells the filter to skip these paths entirely
+    @Override
+    protected boolean shouldNotFilter(HttpServletRequest request) {
+        String path = request.getServletPath();
+        return path.startsWith("/user/transactions/") ||
+               path.startsWith("/user/topup/")        ||
+               path.equals("/userLogin")               ||
+               path.equals("/register")                ||
+               path.startsWith("/api/payment/")        ||
+               path.startsWith("/api/user/")           ||
+               path.equals("/super-admin/login")       ||
+               path.equals("/super-admin/verify-otp")  ||
+               path.startsWith("/ws/")                 ||
+               path.startsWith("/ocr/");
     }
 
     @Override
@@ -39,12 +55,11 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter
                                     HttpServletResponse response,
                                     FilterChain chain) throws ServletException, IOException
     {
-
         final String authHeader = request.getHeader("Authorization");
         String username = null;
         String token    = null;
 
-        if (authHeader != null && authHeader.startsWith("Bearer ")) 
+        if (authHeader != null && authHeader.startsWith("Bearer "))
         {
             token    = authHeader.substring(7);
             username = jwtUtil.extractUsername(token);
@@ -54,29 +69,22 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter
 
             UserDetails userDetails = null;
 
-            // ✅ Try branch admin first
-            try 
+            try
             {
                 userDetails = branchDetailService.loadUserByUsername(username);
-            } 
-            catch (Exception e) 
-            {
-               
             }
+            catch (Exception e) {}
 
-            if (userDetails == null) 
+            if (userDetails == null)
             {
-                try 
+                try
                 {
                     userDetails = superAdminDetailService.loadUserByUsername(username);
-                } 
-                catch (Exception e) 
-                {
-
                 }
+                catch (Exception e) {}
             }
 
-            if (userDetails != null && jwtUtil.validateToken(token)) 
+            if (userDetails != null && jwtUtil.validateToken(token))
             {
                 var authToken = new UsernamePasswordAuthenticationToken(
                         userDetails, null, userDetails.getAuthorities()

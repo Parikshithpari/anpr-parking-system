@@ -145,29 +145,35 @@ public class UserController
 	}
 
 	// ✅ Initiate top-up payment (reuse PhonePe flow)
+	// ✅ Replace the topup/initiate endpoint in UserController
 	@PostMapping("/user/topup/initiate")
 	public ResponseEntity<Map<String, Object>> initiateTopUp(
-	        @AuthenticationPrincipal UserDetails userDetails,
 	        @RequestBody Map<String, String> request) {
 	    try {
-	        User user = repo.findUserByName(userDetails.getUsername())
-	                .orElseThrow(() -> new RuntimeException("User not found"));
-
+	        String userName  = request.get("name");      // ✅ pass name from frontend
 	        String amountStr = request.get("amount");
-	        double amount    = Double.parseDouble(amountStr);
 
+	        if (userName == null || userName.isBlank()) {
+	            return ResponseEntity.badRequest()
+	                    .body(Map.of("error", "User name is required"));
+	        }
+
+	        double amount = Double.parseDouble(amountStr);
 	        if (amount < 200) {
 	            return ResponseEntity.badRequest()
 	                    .body(Map.of("error", "Minimum top-up is ₹200"));
 	        }
 
+	        // ✅ Look up user by name
+	        User user = repo.findUserByName(userName)
+	                .orElseThrow(() -> new RuntimeException("User not found: " + userName));
+
 	        String merchantOrderId = "TOPUP_" + UUID.randomUUID()
 	                .toString().replace("-", "");
 
-			// store pending topup
 	        pendingTopUps.put(merchantOrderId, Map.of(
-	            "userId",   String.valueOf(user.getId()),
-	            "amount",   amountStr
+	            "userId", String.valueOf(user.getId()),
+	            "amount", amountStr
 	        ));
 
 	        long amountInPaise = (long)(amount * 100);
@@ -179,7 +185,7 @@ public class UserController
 	            .redirectUrl(redirectUrl)
 	            .build();
 
-			StandardCheckoutPayResponse payResponse = phonePeClient.pay(payRequest);
+	        StandardCheckoutPayResponse payResponse = phonePeClient.pay(payRequest);
 
 	        return ResponseEntity.ok(Map.of(
 	            "paymentUrl",      payResponse.getRedirectUrl(),
@@ -187,6 +193,7 @@ public class UserController
 	        ));
 
 	    } catch (Exception e) {
+	        e.printStackTrace();
 	        return ResponseEntity.status(500)
 	                .body(Map.of("error", e.getMessage()));
 	    }

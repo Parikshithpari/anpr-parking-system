@@ -47,8 +47,10 @@ public class PhonePeController {
     @Value("${app.frontend.url}")
     private String frontendUrl;
 
+    @Autowired
     private final Map<String, Map<String, String>> pendingUsers = new ConcurrentHashMap<>();
 
+    @Autowired
     private StandardCheckoutClient phonePeClient;
 
     @PostConstruct

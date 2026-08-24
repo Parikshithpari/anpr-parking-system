@@ -150,6 +150,7 @@ public class PhonePeController {
                         user.setRCNumber(userData.get("rcNumber"));
                         user.setBalance(Double.parseDouble(userData.get("amount")));
                         user.setBranch(null);
+                        user.setDateOfBirth(userData.get("dateOfBirth"));
                         userRepo.save(user);
                         System.out.println("✅ User saved: " + userData.get("email"));
                     } catch (Exception saveEx) {

@@ -57,6 +57,7 @@ public class SecurityConfig {
                 .requestMatchers("/super-admin/verify-otp").permitAll()
                 .requestMatchers("/user/transactions/**").permitAll()
                 .requestMatchers("/user/topup/**").permitAll()
+                .requestMatchers("/api/anpr/**").permitAll()
                 .anyRequest().authenticated()
             )
             .sessionManagement(session -> session

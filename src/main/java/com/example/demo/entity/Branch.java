@@ -23,6 +23,8 @@ public class Branch
 	
 	@Column(nullable = false, unique = true)
 	private String userName;
+	
+	@Column(nullable = false)
 	private String password;
 	
 	private Double pricePerMinute = 2.0;
@@ -31,7 +33,13 @@ public class Branch
 	
 	private LocalDate specialPriceUntil;
 	
-	public Branch(Long id, String branchName, String location, String userName, String password, Double pricePerMinute, Double specialPrice, LocalDate specialPriceUntil) 
+	@Column(nullable = true)
+	private String rtspUrl;
+	
+	@Column(nullable = true)
+	private Boolean cameraActive = false;
+	
+	public Branch(Long id, String branchName, String location, String userName, String password, Double pricePerMinute, Double specialPrice, LocalDate specialPriceUntil, String rtspUrl, Boolean cameraActive) 
 	{
 		super();
 		this.id = id;
@@ -42,6 +50,8 @@ public class Branch
 		this.pricePerMinute = pricePerMinute;
 		this.specialPrice = specialPrice;
 		this.specialPriceUntil = specialPriceUntil;
+		this.rtspUrl = rtspUrl;
+		this.cameraActive = cameraActive;
 	}
 	
 	public Double getEffectivePrice() {
@@ -133,4 +143,9 @@ public class Branch
 	public void setSpecialPriceUntil(LocalDate specialPriceUntil) {
 		this.specialPriceUntil = specialPriceUntil;
 	}
+	
+	public String getRtspUrl() { return rtspUrl; }
+	public void setRtspUrl(String rtspUrl) { this.rtspUrl = rtspUrl; }
+	public Boolean getCameraActive() { return cameraActive; }
+	public void setCameraActive(Boolean cameraActive) { this.cameraActive = cameraActive; }
 }

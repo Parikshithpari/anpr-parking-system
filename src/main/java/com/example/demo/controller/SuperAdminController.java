@@ -9,6 +9,7 @@ import com.example.demo.repository.BranchUserRepository;
 import com.example.demo.repository.SuperAdminRepository;
 import com.example.demo.repository.UserRepository;
 import com.example.demo.security.JwtUtil;
+import com.example.demo.service.RTOInsuranceService;
 import com.example.demo.service.SuperAdminCacheService;
 import com.example.demo.service.SuperAdminService;
 import com.example.demo.service.VehicleLogService;
@@ -62,10 +63,17 @@ public class SuperAdminController {
     private JavaMailSender mailSender;
 
     @Autowired
-    private SuperAdminRepository superAdminRepo;  // ✅ was missing
+    private SuperAdminRepository superAdminRepo;  
+    
+    @Autowired
+    private RTOInsuranceService rtoInsuranceService;
 
     @Value("${spring.mail.username}")
     private String fromEmail;
+    
+    @Value("${anpr.api.key}")
+    private String anprApiKey;
+   
 
     // ✅ OTP store — in memory
     private final Map<String, String[]> superAdminOtpStore = new ConcurrentHashMap<>();
@@ -199,7 +207,31 @@ public class SuperAdminController {
     public ResponseEntity<Map<String, Object>> getUserByPlate(
             @PathVariable String plateNumber) {
         try {
-            return ResponseEntity.ok(cacheService.getUserByPlate(plateNumber));
+            List<com.example.demo.entity.User> users = userRepo.findAll();
+            Optional<com.example.demo.entity.User> found = users.stream()
+                    .filter(u -> plateNumber.equalsIgnoreCase(u.getPlateNumber()))
+                    .findFirst();
+
+            if (found.isEmpty()) {
+                return ResponseEntity.ok(Map.of("found", false));
+            }
+
+            com.example.demo.entity.User u = found.get();
+            Map<String, Object> map = new HashMap<>();
+            map.put("found",            true);
+            map.put("id",               u.getId());
+            map.put("name",             u.getName());
+            map.put("email",            u.getEmail());
+            map.put("phoneNumber",      u.getPhoneNumber());
+            map.put("plateNumber",      u.getPlateNumber());
+            map.put("balance",          u.getBalance());
+            map.put("rcNumber",         u.getRCNumber());
+            map.put("insuranceStatus",  u.getInsuranceStatus() != null
+                                        ? u.getInsuranceStatus() : "PENDING");
+            map.put("insuranceCompany", u.getInsuranceCompany());
+            map.put("insuranceExpiry",  u.getInsuranceExpiry());
+            map.put("dateOfBirth", u.getDateOfBirth());
+            return ResponseEntity.ok(map);
         } catch (Exception e) {
             return ResponseEntity.status(500)
                     .body(Map.of("error", e.getMessage()));
@@ -227,25 +259,29 @@ public class SuperAdminController {
             String location   = request.get("location");
             String userName   = request.get("userName");
             String password   = request.get("password");
-
+            String rtspUrl    = request.get("rtspUrl");
+     
             Branch branch = new Branch();
             branch.setBranchName(branchName);
             branch.setLocation(location);
             branch.setUserName(userName);
-            branch.setPassword(passwordEncoder.encode(password));
+            branch.setPassword(password);                    // ✅ NEW — store plain for Python
+            branch.setPassword(passwordEncoder.encode(password)); // existing — BCrypt for security
             branch.setPricePerMinute(2.0);
+            branch.setRtspUrl(rtspUrl);
             Branch savedBranch = branchRepo.save(branch);
-
+     
             BranchUser user = new BranchUser();
             user.setBranchName(branchName);
             user.setLocation(location);
             user.setUserName(userName);
-            user.setPassword(passwordEncoder.encode(password));
+            user.setPassword(passwordEncoder.encode(password));   // unchanged
             user.setBranches(new ArrayList<>(List.of(savedBranch)));
             BranchUser saved = branchUserRepo.save(user);
-
+     
             cacheService.evictBranchCaches();
-
+     
+            // Response — identical to original
             Map<String, Object> resp = new HashMap<>();
             resp.put("id",         saved.getId());
             resp.put("branchName", saved.getBranchName());
@@ -257,7 +293,7 @@ public class SuperAdminController {
                 "location",   savedBranch.getLocation()
             )));
             return ResponseEntity.ok(resp);
-
+     
         } catch (Exception e) {
             return ResponseEntity.status(500)
                     .body(Map.of("error", "Failed to create: " + e.getMessage()));
@@ -347,23 +383,144 @@ public class SuperAdminController {
 
     @PostMapping("/super-admin/branch-users/{id}/reset-password")
     public ResponseEntity<?> resetPassword(@PathVariable Long id) {
-        System.out.println("🔑 Reset password called for user id: " + id);
         try {
             BranchUser user = branchUserRepo.findById(id)
                 .orElseThrow(() -> new RuntimeException("User not found"));
-
+     
             String tempPassword = generateTempPassword();
+     
+            // Update BranchUser password
             user.setPassword(passwordEncoder.encode(tempPassword));
             branchUserRepo.save(user);
-
-            System.out.println("✅ Password reset for user: " + user.getUsername());
-
+     
+            // ✅ Also update Branch plainPassword so Python still works after reset
+            List<Branch> userBranches = branchRepo.findAll().stream()
+                .filter(b -> b.getUserName() != null
+                          && b.getUserName().equals(user.getUsername()))
+                .collect(java.util.stream.Collectors.toList());
+     
+            for (Branch b : userBranches) {
+                b.setPassword(tempPassword);
+                b.setPassword(passwordEncoder.encode(tempPassword));
+                branchRepo.save(b);
+            }
+     
             return ResponseEntity.ok(Map.of("temporaryPassword", tempPassword));
-
+     
         } catch (Exception e) {
-            System.out.println("❌ Reset failed: " + e.getMessage());
+            return ResponseEntity.status(500).body(Map.of("error", e.getMessage()));
+        }
+    }
+    
+    @GetMapping("/super-admin/users")
+    public ResponseEntity<List<Map<String, Object>>> getAllUsers() {
+        List<com.example.demo.entity.User> users = userRepo.findAll();
+        List<Map<String, Object>> result = users.stream().map(u -> {
+            Map<String, Object> map = new HashMap<>();
+            map.put("id",               u.getId());
+            map.put("name",             u.getName());
+            map.put("email",            u.getEmail());
+            map.put("phoneNumber",      u.getPhoneNumber());
+            map.put("plateNumber",      u.getPlateNumber());
+            map.put("rcNumber",         u.getRCNumber());
+            map.put("balance",          u.getBalance());
+            map.put("insuranceStatus",  u.getInsuranceStatus() != null
+                                        ? u.getInsuranceStatus() : "PENDING");
+            map.put("insuranceCompany", u.getInsuranceCompany());
+            map.put("insuranceExpiry",  u.getInsuranceExpiry());
+            map.put("insuranceNote",    u.getInsuranceNote());
+            map.put("dateOfBirth", u.getDateOfBirth());
+            return map;
+        }).collect(java.util.stream.Collectors.toList());
+        return ResponseEntity.ok(result);
+    }
+
+    // ✅ Update insurance status for a user
+    @PutMapping("/super-admin/users/{id}/insurance")
+    public ResponseEntity<Map<String, Object>> updateInsurance(
+            @PathVariable Long id,
+            @RequestBody Map<String, String> request) {
+        try {
+            com.example.demo.entity.User user = userRepo.findById(id)
+                    .orElseThrow(() -> new RuntimeException("User not found"));
+
+            String status  = request.get("insuranceStatus");
+            String company = request.get("insuranceCompany");
+            String expiry  = request.get("insuranceExpiry");
+            String note    = request.get("insuranceNote");
+
+            if (status  != null) user.setInsuranceStatus(status);
+            if (company != null) user.setInsuranceCompany(company);
+            if (expiry  != null) user.setInsuranceExpiry(expiry);
+            if (note    != null) user.setInsuranceNote(note);
+
+            userRepo.save(user);
+
+            return ResponseEntity.ok(Map.of(
+                "message",          "Insurance status updated",
+                "insuranceStatus",  user.getInsuranceStatus(),
+                "insuranceCompany", user.getInsuranceCompany() != null ? user.getInsuranceCompany() : "",
+                "insuranceExpiry",  user.getInsuranceExpiry()  != null ? user.getInsuranceExpiry()  : "",
+                "insuranceNote",    user.getInsuranceNote()    != null ? user.getInsuranceNote()    : ""
+            ));
+        } catch (Exception e) {
             return ResponseEntity.status(500)
                     .body(Map.of("error", e.getMessage()));
         }
+    } 
+    
+    @PostMapping("/super-admin/users/{id}/fetch-insurance")
+    public ResponseEntity<Map<String, Object>> fetchInsuranceFromAPI(@PathVariable Long id) {
+      try {
+         com.example.demo.entity.User user = userRepo.findById(id)
+                  .orElseThrow(() -> new RuntimeException("User not found"));
+ 
+          if (user.getRCNumber() == null || user.getRCNumber().isBlank()) {
+              return ResponseEntity.badRequest().body(Map.of("error", "No RC number on file"));
+         }
+ 
+         Map<String, Object> apiResult = rtoInsuranceService.fetchInsuranceDetails(user.getRCNumber());
+ 
+         if (Boolean.TRUE.equals(apiResult.get("success"))) {
+              user.setInsuranceCompany((String) apiResult.get("insuranceCompany"));
+              user.setInsuranceExpiry((String) apiResult.get("insuranceExpiry"));
+              user.setInsuranceStatus((String) apiResult.get("insuranceStatus"));
+              userRepo.save(user);
+          }
+ 
+          return ResponseEntity.ok(apiResult);
+ 
+      } catch (Exception e) {
+          return ResponseEntity.status(500).body(Map.of("error", e.getMessage()));
+      }
+}
+    
+ // ✅ Python polls this to get all active camera configs
+ // No auth needed — Python uses its own API key
+    @GetMapping("/api/anpr/camera-configs")
+    public ResponseEntity<?> getCameraConfigs(
+            @RequestHeader(value = "X-ANPR-Key", required = false) String apiKey) {
+     
+        if (apiKey == null || !anprApiKey.equals(apiKey.trim())) {
+            return ResponseEntity.status(403).body(Map.of("error", "Invalid ANPR API key"));
+        }
+     
+        List<Branch> branches = branchRepo.findAll().stream()
+                .filter(b -> b.getRtspUrl() != null && !b.getRtspUrl().isBlank())
+                .collect(java.util.stream.Collectors.toList());
+     
+        List<Map<String, Object>> result = branches.stream().map(b -> {
+            Map<String, Object> map = new java.util.LinkedHashMap<>();
+            map.put("branchId",      b.getId());
+            map.put("branchName",    b.getBranchName());
+            map.put("rtspUrl",       b.getRtspUrl());
+            map.put("cameraId",      "CAM-" + b.getId());
+            map.put("username",      b.getUserName());
+            map.put("password",      b.getPassword()); // ✅ plain text — Python uses this to login
+            return map;
+        }).collect(java.util.stream.Collectors.toList());
+     
+        return ResponseEntity.ok(result);
     }
+
 }

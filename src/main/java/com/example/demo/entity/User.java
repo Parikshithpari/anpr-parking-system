@@ -40,13 +40,30 @@ public class User
 	@Column(nullable=false, unique = true)
 	private String RCNumber;
 
+	@Column(nullable = true)
+	private String insuranceStatus = "PENDING";
+	// Values: "PENDING" | "VERIFIED" | "NOT_INSURED" | "EXPIRED"
+
+	@Column(nullable = true)
+	private String insuranceCompany;
+
+	@Column(nullable = true)
+	private String insuranceExpiry;
+
+	@Column(nullable = true)
+	private String insuranceNote;
+	
+	@Column(nullable = true)
+	private String dateOfBirth; 
+
 	public User() 
 	{
 		super();
 	}
 
-	public User(Long id, String name, String phoneNumber, String email, String password, Double balance,
-			Branch branch, String plateNumber, String RCNumber) 
+	public User(Long id, String name, String phoneNumber, String email, String password, Double balance, Branch branch,
+			String plateNumber, String rCNumber, String insuranceStatus, String insuranceCompany,
+			String insuranceExpiry, String insuranceNote, String dateOfBirth) 
 	{
 		super();
 		this.id = id;
@@ -57,7 +74,12 @@ public class User
 		this.balance = balance;
 		this.branch = branch;
 		this.plateNumber = plateNumber;
-		this.RCNumber = RCNumber;
+		RCNumber = rCNumber;
+		this.insuranceStatus = insuranceStatus;
+		this.insuranceCompany = insuranceCompany;
+		this.insuranceExpiry = insuranceExpiry;
+		this.insuranceNote = insuranceNote;
+		this.dateOfBirth = dateOfBirth;
 	}
 
 	public Long getId() {
@@ -130,5 +152,45 @@ public class User
 
 	public void setRCNumber(String rCNumber) {
 		RCNumber = rCNumber;
+	}
+
+	public String getInsuranceStatus() {
+		return insuranceStatus;
+	}
+
+	public void setInsuranceStatus(String insuranceStatus) {
+		this.insuranceStatus = insuranceStatus;
+	}
+
+	public String getInsuranceCompany() {
+		return insuranceCompany;
+	}
+
+	public void setInsuranceCompany(String insuranceCompany) {
+		this.insuranceCompany = insuranceCompany;
+	}
+
+	public String getInsuranceExpiry() {
+		return insuranceExpiry;
+	}
+
+	public void setInsuranceExpiry(String insuranceExpiry) {
+		this.insuranceExpiry = insuranceExpiry;
+	}
+
+	public String getInsuranceNote() {
+		return insuranceNote;
+	}
+
+	public void setInsuranceNote(String insuranceNote) {
+		this.insuranceNote = insuranceNote;
+	}
+
+	public String getDateOfBirth() {
+		return dateOfBirth;
+	}
+
+	public void setDateOfBirth(String dateOfBirth) {
+		this.dateOfBirth = dateOfBirth;
 	}
 }
